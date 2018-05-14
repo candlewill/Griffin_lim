@@ -40,11 +40,13 @@ def spectrogram2wav(spectrogram, n_iter=hparams.griffin_lim_iters, n_fft=(hparam
 
 def inv_spectrogram(spectrogram):
     S = _db_to_amp(_denormalize(spectrogram) + hparams.ref_level_db)  # Convert back to linear
-    return _inv_preemphasis(spectrogram2wav(S ** 1.5))  # Reconstruct phase
+    return _inv_preemphasis(spectrogram2wav(S ** hparams.power))  # Reconstruct phase
 
 
-def _denormalize(S):
-    return (tf.clip_by_value(S, 0, 1) * -hparams.min_level_db) + hparams.min_level_db
+def _denormalize(D):
+    return (((tf.clip_by_value(D, -hparams.max_abs_value,
+                               hparams.max_abs_value) + hparams.max_abs_value) * -hparams.min_level_db / (
+                     2 * hparams.max_abs_value)) + hparams.min_level_db)
 
 
 def _db_to_amp(x):

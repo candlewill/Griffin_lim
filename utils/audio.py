@@ -3,6 +3,8 @@ import librosa.filters
 import numpy as np
 from scipy import signal
 
+from scipy.io import wavfile
+
 from hparams import hparams
 
 
@@ -12,7 +14,7 @@ def load_wav(path, sr):
 
 def save_wav(wav, path):
     wav *= 32767 / max(0.01, np.max(np.abs(wav)))
-    librosa.output.write_wav(path, wav.astype(np.int16), hparams.sample_rate)
+    wavfile.write(path, hparams.sample_rate, wav.astype(np.int16))
 
 
 def spectrogram(y):
@@ -23,7 +25,7 @@ def spectrogram(y):
 
 def inv_spectrogram(spectrogram):
     S = _db_to_amp(_denormalize(spectrogram) + hparams.ref_level_db)  # Convert back to linear
-    return _inv_preemphasis(_griffin_lim(S ** 1.5))  # Reconstruct phase
+    return _inv_preemphasis(_griffin_lim(S ** hparams.power))  # Reconstruct phase
 
 
 def melspectrogram(y):
@@ -49,16 +51,11 @@ def _griffin_lim(S):
 
 
 def _stft(y):
-    n_fft = (hparams.num_freq - 1) * 2
-    hop_length = int(hparams.frame_shift_ms / 1000 * hparams.sample_rate)
-    win_length = int(hparams.frame_length_ms / 1000 * hparams.sample_rate)
-    return librosa.stft(y=y, n_fft=n_fft, hop_length=hop_length, win_length=win_length)
+    return librosa.stft(y=y, n_fft=hparams.fft_size, hop_length=get_hop_size())
 
 
 def _istft(y):
-    hop_length = int(hparams.frame_shift_ms / 1000 * hparams.sample_rate)
-    win_length = int(hparams.frame_length_ms / 1000 * hparams.sample_rate)
-    return librosa.istft(y, hop_length=hop_length, win_length=win_length)
+    return librosa.istft(y, hop_length=get_hop_size())
 
 
 # Conversions:
@@ -103,8 +100,21 @@ def _inv_preemphasis(x):
 
 
 def _normalize(S):
-    return np.clip((S - hparams.min_level_db) / -hparams.min_level_db, 0, 1)
+    return np.clip(
+        (2 * hparams.max_abs_value) * ((S - hparams.min_level_db) / (-hparams.min_level_db)) - hparams.max_abs_value,
+        -hparams.max_abs_value, hparams.max_abs_value)
 
 
-def _denormalize(S):
-    return (np.clip(S, 0, 1) * -hparams.min_level_db) + hparams.min_level_db
+def _denormalize(D):
+    return (((np.clip(D, -hparams.max_abs_value,
+                      hparams.max_abs_value) + hparams.max_abs_value) * -hparams.min_level_db / (
+                     2 * hparams.max_abs_value))
+            + hparams.min_level_db)
+
+
+def get_hop_size():
+    hop_size = hparams.hop_size
+    if hop_size is None:
+        assert hparams.frame_shift_ms is not None
+        hop_size = int(hparams.frame_shift_ms / 1000 * hparams.sample_rate)
+    return hop_size
